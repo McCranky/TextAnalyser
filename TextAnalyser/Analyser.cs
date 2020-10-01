@@ -11,7 +11,8 @@ namespace TextAnalyser
     {
         private readonly char[] _vowels = {'a', 'e', 'i', 'o', 'u', 'y'};
         private readonly char[] _consonants = {'b', 'c', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'v', 'z'}; // TODO w? x?
-        private readonly string _text;
+        private string text;
+        private string[] sentences;
         private Dictionary<string, int> words;
         private Dictionary<char, int> characters;
         private int charactersWithSpaces,
@@ -19,14 +20,14 @@ namespace TextAnalyser
             vowelsCount,
             consonantsCount,
             wordsCount,
-            sentencesCount;
+            uniqueWordsCount;
         private double averageSentenceLength;
 
         public Analyser(string textToAnalyse)
         {
-            this._text = textToAnalyse.ToLower();
+            this.text = textToAnalyse;
             charactersWithSpaces = charactersWithoutSpaces =
-                vowelsCount = consonantsCount = wordsCount = sentencesCount = 0;
+                vowelsCount = consonantsCount = wordsCount = uniqueWordsCount = 0;
             averageSentenceLength = 0;
             
             AnalyseText();
@@ -34,18 +35,24 @@ namespace TextAnalyser
 
         private void AnalyseText()
         {
+            sentences = ExtractSentences();
+            text = text.ToLower();
+            
             charactersWithSpaces = CharacterCount(true);
             charactersWithoutSpaces = CharacterCount(false);
             vowelsCount = VowelsCount();
             consonantsCount = ConsonantsCount();
+            
+            
             words = Words(); // for -wf switch and counts
             foreach (var wordPair in words)
             {
+                if (wordPair.Key.Any(char.IsNumber)) continue;
                 wordsCount += wordPair.Value;
+                ++uniqueWordsCount;
             }
             characters = Characters(); // for -cf switch
-            sentencesCount = SentenceCount();
-            averageSentenceLength = Math.Round(wordsCount / (double) sentencesCount, 2);
+            averageSentenceLength = Math.Round(wordsCount / (double) sentences.Length, 2);
         }
 
         public void PrintAnalyses(bool characterFrequencies, bool wordFrequencies)
@@ -55,9 +62,9 @@ namespace TextAnalyser
             Console.WriteLine($"Number of vowels: {vowelsCount}");
             Console.WriteLine($"Number of consonants: {consonantsCount}");
             Console.WriteLine($"Number of words: {wordsCount}");
-            Console.WriteLine($"Number of unique words: {words.Count}");
-            Console.WriteLine($"Number of sentences: {sentencesCount}");
-            Console.WriteLine($"Average sentence length: {averageSentenceLength.ToString("0.00")}");
+            Console.WriteLine($"Number of unique words: {uniqueWordsCount}");
+            Console.WriteLine($"Number of sentences: {sentences.Length}");
+            Console.WriteLine($"Average sentence length: {averageSentenceLength:0.00}");
             if (characterFrequencies)
             {
                 Console.WriteLine();
@@ -77,6 +84,37 @@ namespace TextAnalyser
                 }
             }
         }
+
+        private string[] ExtractSentences()
+        {
+            var tempSentences = new List<string>();
+            var lastIndex = 0;
+            Console.WriteLine(text.ToCharArray());
+            for (var i = 0; i < text.Length; i++) // Vet. Also... "5." 1.9. 
+            {
+                // Console.Write(text[i]);
+                if (text[i] != '.') continue;
+                if (i + 1 >= text.Length || 
+                    char.IsUpper(text[i+1]) ||
+                    text[i+1] == '.' && text[i+2] == '.' || 
+                    text[i+1] == ' ' && char.IsUpper(text[i+2]) ||
+                    text[i+1] == ' ' && char.IsNumber(text[i+2]))
+                {
+                    tempSentences.Add(text.Substring(lastIndex, i - lastIndex));
+                    while (i + 1 < text.Length && text[i+1] == '.' )
+                    {
+                        ++i;
+                    }
+                    lastIndex = i + 2; // 2 because of ". " dot and space at the end of every sentence
+                }
+            }
+
+            if (tempSentences.Count < 1)
+            {
+                tempSentences.Add(text);
+            }
+            return tempSentences.ToArray();
+        }
         
         private bool IsIn(IEnumerable<char> arr, char letter)
         {
@@ -87,16 +125,16 @@ namespace TextAnalyser
         {
             if (spaces)
             {
-                return _text.Length;
+                return text.Length;
             }
 
-            return _text.Count(character => character != ' ');
+            return text.Count(character => character != ' ');
         }
         
         private int VowelsCount()
         {
             var vowelCount = 0;
-            var normalizedText = _text.Normalize(NormalizationForm.FormD)
+            var normalizedText = text.Normalize(NormalizationForm.FormD)
                 .Where(ch => CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
                 .ToArray();
             
@@ -106,7 +144,7 @@ namespace TextAnalyser
                 foreach (var vowel in _vowels)
                 {
                     if (letter != vowel) continue;
-                    if (letter == 'i' && i + 1 < normalizedText.Length && IsIn(new char[]{'a', 'e', 'u'}, normalizedText[i + 1]))
+                    if (letter == 'i' && i + 1 < normalizedText.Length && IsIn(new[]{'a', 'e', 'u'}, normalizedText[i + 1]))
                     {
                         ++i;
                     }
@@ -120,10 +158,9 @@ namespace TextAnalyser
         private int ConsonantsCount()
         {
             var consonants = 0;
-            var normalizedText = _text.Normalize(NormalizationForm.FormD)
+            var normalizedText = text.Normalize(NormalizationForm.FormD)
                 .Where(ch => CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
                 .ToArray();
-            // Console.WriteLine(normalizedText);
 
             for (var i = 0; i < normalizedText.Length; i++)
             {
@@ -142,39 +179,22 @@ namespace TextAnalyser
             return consonants;
         }
 
-        private int SentenceCount()
-        {
-            return _text.Split('.').Count(sentence => sentence != "");
-        }
-
         private Dictionary<string, int> Words()
         {
             var wordsDict = new Dictionary<string, int>();
-            var sentences = _text.ToLower().Split('.'); // TODO case if '.' is used in date or ...
             foreach (var sentence in sentences)
             {
-                if (IsNullOrEmpty(sentence)) continue;
-                var subSentences = sentence.Split(',');
-                foreach (var subSentence in subSentences)
+                var tempWords = sentence.ToLower().Split(new[] {' ', ',', '\'', '.', '\"', '(', ')', '-'});
+                foreach (var word in tempWords)
                 {
-                    if (IsNullOrEmpty(subSentence)) continue;
-                    var wordsInSubsentence = subSentence.Split(' ');
-                    foreach (var word in wordsInSubsentence)
+                    if (IsNullOrWhiteSpace(word)) continue;
+                    if (wordsDict.TryGetValue(word, out var count))
                     {
-                        if (IsNullOrEmpty(word)) continue;
-                        var apostropheWords = word.Split('\'');
-                        foreach (var apostrophe in apostropheWords)
-                        {
-                            if (IsNullOrEmpty(apostrophe)) continue;
-                            if (wordsDict.TryGetValue(apostrophe, out var count))
-                            {
-                                wordsDict[apostrophe] = count + 1;
-                            }
-                            else
-                            {
-                                wordsDict.Add(apostrophe, 1);
-                            }
-                        }
+                        wordsDict[word] = count + 1;
+                    }
+                    else
+                    {
+                        wordsDict.Add(word, 1);
                     }
                 }
             }
@@ -185,7 +205,7 @@ namespace TextAnalyser
         private Dictionary<char, int> Characters()
         {
             var characterDict = new Dictionary<char, int>();
-            foreach (var letter in _text.Where(letter => char.IsLetter(letter)))
+            foreach (var letter in text.Where(letter => char.IsLetter(letter)))
             {
                 if (characterDict.TryGetValue(letter, out var count))
                 {
